@@ -1,137 +1,177 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/use-toast";
-import { calculateWPM, calculateAccuracy } from "@/lib/metrics";
-import { Timer } from "@/components/Timer";
-import { TypingMetrics } from "@/components/TypingMetrics";
-import { TypingText } from "@/components/TypingText";
-import { sampleTexts } from "@/lib/texts";
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { generateWords } from '../utils/words';
+import Stats from './Stats';
+import { useToast } from '../components/ui/use-toast';
 
-export const TypingTest = () => {
-  const [text, setText] = useState("");
-  const [input, setInput] = useState("");
-  const [isStarted, setIsStarted] = useState(false);
-  const [isFinished, setIsFinished] = useState(false);
+const TypingTest = () => {
+  const [words, setWords] = useState<string[]>(generateWords(50));
+  const [currentWordIndex, setCurrentWordIndex] = useState(0);
+  const [currentInput, setCurrentInput] = useState('');
   const [startTime, setStartTime] = useState<number | null>(null);
-  const [currentTime, setCurrentTime] = useState<number>(0);
-  const [duration, setDuration] = useState(60);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [endTime, setEndTime] = useState<number | null>(null);
+  const [wpm, setWpm] = useState(0);
+  const [accuracy, setAccuracy] = useState(100);
+  const [correctChars, setCorrectChars] = useState(0);
+  const [totalChars, setTotalChars] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(60);
+  const [testComplete, setTestComplete] = useState(false);
   const { toast } = useToast();
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const wordsContainerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setText(sampleTexts[Math.floor(Math.random() * sampleTexts.length)]);
+  const resetTest = useCallback(() => {
+    setWords(generateWords(50));
+    setCurrentWordIndex(0);
+    setCurrentInput('');
+    setStartTime(null);
+    setEndTime(null);
+    setWpm(0);
+    setAccuracy(100);
+    setCorrectChars(0);
+    setTotalChars(0);
+    setTimeLeft(60);
+    setTestComplete(false);
   }, []);
 
-  useEffect(() => {
-    if (isStarted && !isFinished) {
-      intervalRef.current = setInterval(() => {
-        const elapsed = startTime ? (Date.now() - startTime) / 1000 : 0;
-        if (elapsed >= duration) {
-          finishTest();
-        } else {
-          setCurrentTime(elapsed);
-        }
-      }, 100);
-    }
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [isStarted, startTime, isFinished, duration]);
+  const calculateWPM = useCallback(() => {
+    if (!startTime || correctChars === 0) return 0;
+    const timeElapsed = ((endTime || Date.now()) - startTime) / 1000 / 60;
+    if (timeElapsed === 0) return 0;
+    return Math.round((correctChars / 5) * (60 / (60 - timeLeft)));
+  }, [startTime, endTime, correctChars, timeLeft]);
 
-  const startTest = () => {
-    setIsStarted(true);
-    setStartTime(Date.now());
-    setIsFinished(false);
-    setInput("");
-    setText(sampleTexts[Math.floor(Math.random() * sampleTexts.length)]);
-    inputRef.current?.focus();
+  const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (testComplete) return;
+    
+    const value = e.target.value;
+    if (!startTime) {
+      setStartTime(Date.now());
+    }
+
+    if (value.endsWith(' ')) {
+      const word = value.trim();
+      const correct = word === words[currentWordIndex];
+      
+      setTotalChars(prev => prev + words[currentWordIndex].length);
+      if (correct) {
+        setCorrectChars(prev => prev + words[currentWordIndex].length);
+      }
+      
+      if (currentWordIndex === words.length - 1) {
+        finishTest();
+        return;
+      }
+
+      setCurrentWordIndex(prev => prev + 1);
+      setCurrentInput('');
+      setWpm(calculateWPM());
+      setAccuracy(Math.round((correctChars / totalChars) * 100) || 100);
+    } else {
+      setCurrentInput(value);
+    }
   };
 
   const finishTest = () => {
-    setIsFinished(true);
-    setIsStarted(false);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-    const wpm = calculateWPM(input, currentTime);
-    const accuracy = calculateAccuracy(text.slice(0, input.length), input);
+    setEndTime(Date.now());
+    setTestComplete(true);
+    const finalWPM = calculateWPM();
     toast({
-      title: "Test Complete!",
-      description: `WPM: ${wpm} | Accuracy: ${accuracy}%`,
+      title: "Test completed!",
+      description: `Final WPM: ${finalWPM}, Accuracy: ${Math.round((correctChars / totalChars) * 100)}%`,
     });
   };
 
-  const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newInput = e.target.value;
-    setInput(newInput);
-    
-    if (!isStarted && newInput.length === 1) {
-      startTest();
+  useEffect(() => {
+    if (startTime && !testComplete && timeLeft > 0) {
+      const timer = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            finishTest();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(timer);
     }
-    
-    if (newInput === text) {
-      finishTest();
-    }
-  };
+  }, [startTime, testComplete, timeLeft]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Tab" && e.getModifierState("Shift")) {
-        e.preventDefault();
-        startTest();
+    if (wordsContainerRef.current) {
+      const container = wordsContainerRef.current;
+      const activeWord = container.querySelector('.active');
+      if (activeWord) {
+        const containerRect = container.getBoundingClientRect();
+        const activeRect = activeWord.getBoundingClientRect();
+        
+        if (activeRect.bottom > containerRect.bottom || activeRect.top < containerRect.top) {
+          const htmlActiveWord = activeWord as HTMLElement;
+          container.scrollTop = htmlActiveWord.offsetTop - container.offsetHeight / 2;
+        }
       }
-    };
+    }
+  }, [currentWordIndex]);
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  useEffect(() => {
+    if (startTime && !testComplete) {
+      const interval = setInterval(() => {
+        setWpm(calculateWPM());
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [startTime, testComplete, calculateWPM]);
 
   return (
-    <div className="space-y-8">
-      <div className="flex justify-between items-center">
-        <Timer
-          duration={duration}
-          currentTime={currentTime}
-          isStarted={isStarted}
-        />
-        <Button
-          onClick={startTest}
-          variant="outline"
-          className="text-primary-foreground hover:text-primary-foreground"
-        >
-          restart test
-        </Button>
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-slate-50">
+      <Stats wpm={wpm} accuracy={accuracy} timeLeft={timeLeft} />
+      
+      <div 
+        ref={wordsContainerRef}
+        className="w-full max-w-3xl mt-8 mb-8 h-24 overflow-hidden text-xl leading-relaxed bg-white rounded-lg p-4 shadow-sm"
+      >
+        <div className="flex flex-wrap">
+          {words.map((word, index) => (
+            <div
+              key={index}
+              className={`mr-2 ${index === currentWordIndex ? 'active bg-slate-100 rounded px-1' : ''}`}
+            >
+              {word.split('').map((char, charIndex) => {
+                let className = 'character';
+                if (index === currentWordIndex) {
+                  if (charIndex < currentInput.length) {
+                    className += currentInput[charIndex] === char ? ' text-green-500' : ' text-red-500';
+                  }
+                }
+                return (
+                  <span key={charIndex} className={className}>
+                    {char}
+                  </span>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
 
-      <TypingMetrics
-        input={input}
-        text={text}
-        currentTime={currentTime}
-        isStarted={isStarted}
+      <input
+        type="text"
+        value={currentInput}
+        onChange={handleInput}
+        className="w-64 px-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
+        autoFocus
+        disabled={testComplete}
       />
 
-      <div className="relative">
-        <TypingText
-          text={text}
-          input={input}
-          isFinished={isFinished}
-        />
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={handleInput}
-          className="absolute inset-0 opacity-0 cursor-default"
-          autoFocus
-        />
-      </div>
-
-      <div className="text-sm text-muted-foreground text-center">
-        {!isStarted ? "Start typing to begin the test" : ""}
-        {isFinished ? "Test complete! Click restart to try again" : ""}
-      </div>
+      <button
+        onClick={resetTest}
+        className="mt-8 px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors"
+      >
+        Reset Test
+      </button>
     </div>
   );
 };
+
+export default TypingTest;
