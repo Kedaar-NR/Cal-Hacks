@@ -6,25 +6,21 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: "#1A1F2C",
-        primary: "#D6BCFA",
-        secondary: "#9B87F5",
-        error: "#ea384c",
-        success: "#4ADE80",
-        neutral: "#8E9196",
+        background: "#FFFFFF",
+        primary: "#1A1A1A",
+        secondary: "#4B5563",
+        error: "#DC2626",
+        success: "#16A34A",
+        neutral: "#6B7280",
       },
       fontFamily: {
-        mono: ["Roboto Mono", "monospace"],
         sans: ["Inter", "sans-serif"],
       },
       animation: {
-        blink: "blink 1s step-end infinite",
+        // Consider removing or simplifying animations for a more minimal look
       },
       keyframes: {
-        blink: {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0" },
-        },
+        // Consider removing keyframes for a cleaner design
       },
     },
   },
